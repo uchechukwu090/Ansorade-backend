@@ -1,0 +1,47 @@
+services:
+  # Backend API Service
+  - type: web
+    name: mt5-community-api
+    env: docker
+    dockerfilePath: ./backend-api/Dockerfile
+    dockerContext: ./backend-api
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mt5-community-db
+          property: connectionString
+      - key: API_SECRET_KEY
+        generateValue: true
+        sync: false
+    autoDeploy: true
+
+  # MT5 Container Service
+  - type: web
+    name: mt5-container
+    env: docker
+    dockerfilePath: ./mt5-docker/Dockerfile
+    dockerContext: ./mt5-docker
+    plan: standard # MT5 needs more resources
+    healthCheckPath: /health
+    envVars:
+      - key: FBS_ACCOUNT
+        sync: false
+      - key: FBS_PASSWORD
+        sync: false
+      - key: FBS_SERVER
+        value: FBS-Real
+      - key: API_SECRET_KEY
+        fromService:
+          type: web
+          name: mt5-community-api
+          envVarKey: API_SECRET_KEY
+    autoDeploy: true
+
+# PostgreSQL Database
+databases:
+  - name: mt5-community-db
+    databaseName: community_trading
+    plan: starter
+    user: trading_user

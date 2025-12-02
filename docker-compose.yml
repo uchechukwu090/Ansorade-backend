@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  mt5:
+    build: ./mt5-docker
+    environment:
+      - FBS_ACCOUNT=${FBS_ACCOUNT}
+      - FBS_PASSWORD=${FBS_PASSWORD}
+      - FBS_SERVER=${FBS_SERVER}
+      - API_SECRET_KEY=${API_SECRET_KEY}
+    ports:
+      - "5900:5900"  # VNC
+      - "8001:8000"  # Internal API
+    volumes:
+      - mt5-data:/root/.wine
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  api:
+    build: ./backend-api
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - API_SECRET_KEY=${API_SECRET_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mt5
+    restart: unless-stopped
+    networks:
+      - trading-network
+
+  # Optional: Local PostgreSQL for development
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     - POSTGRES_USER=trading
+  #     - POSTGRES_PASSWORD=trading123
+  #     - POSTGRES_DB=community_trading
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - trading-network
+
+volumes:
+  mt5-data:
+  # postgres-data:
+
+networks:
+  trading-network:
+    driver: bridge

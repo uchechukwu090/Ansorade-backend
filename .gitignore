@@ -1,0 +1,14 @@
+.env
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+*.log
+*.exe
+*.msi
+
+# MT5 specific
+*.set
+*.dat
+terminal64.exe
+".env" 
