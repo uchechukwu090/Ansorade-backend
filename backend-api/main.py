@@ -210,6 +210,44 @@ async def receive_signal(signal: Signal, api_key: str = Depends(verify_api_key))
         print(f"❌ Error storing signal: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error storing signal: {str(e)}")
 
+@app.post("/api/signals/manual")
+async def manual_signal(signal: Signal):
+    """Manually send a trading signal (no API key required for testing)"""
+    try:
+        supabase = get_supabase_client()
+        
+        response = supabase.table("signals").insert({
+            "symbol": signal.symbol,
+            "action": signal.action.upper(),
+            "volume": signal.volume,
+            "sl": signal.sl,
+            "tp": signal.tp,
+            "confidence": signal.confidence or 0.85,
+            "timeframe": signal.timeframe or "M15",
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+        
+        signal_id = response.data[0]["id"] if response.data else None
+        print(f"✅ Manual signal stored: {signal.symbol} {signal.action}")
+        
+        return {
+            "success": True,
+            "message": "Signal created successfully",
+            "signal_id": signal_id,
+            "signal": {
+                "symbol": signal.symbol,
+                "action": signal.action.upper(),
+                "volume": signal.volume,
+                "sl": signal.sl,
+                "tp": signal.tp,
+                "status": "pending"
+            }
+        }
+    except Exception as e:
+        print(f"❌ Error creating manual signal: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating signal: {str(e)}")
+
 @app.get("/api/signals/pending")
 async def get_pending_signals(api_key: str = Depends(verify_api_key)):
     """MT5 EA polls this endpoint for new signals"""
@@ -358,38 +396,7 @@ async def get_trades_history(limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching trades: {str(e)}")
 
-# Signal Generation Endpoint (New)
-@app.post("/api/generate-signal")
-async def generate_signal(symbol: str, candles: List[float], timeframe: str = "1h", api_key: str = Depends(verify_api_key)):
-    """Generate trading signal from market data"""
-    try:
-        # Fetch signal from generator
-        signal_data = await fetch_signal_from_generator(symbol, candles, timeframe)
-        
-        if not signal_data or not signal_data.get("success"):
-            return {"error": "Failed to generate signal"}
-        
-        # Store signal in database
-        signal = Signal(
-            symbol=signal_data.get("symbol"),
-            action=signal_data.get("signal"),
-            volume=0.01,
-            sl=signal_data.get("sl"),
-            tp=signal_data.get("tp"),
-            confidence=signal_data.get("confidence"),
-            timeframe=timeframe
-        )
-        
-        result = await receive_signal(signal, api_key)
-        
-        return {
-            "success": True,
-            "signal_data": signal_data,
-            "storage_result": result
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating signal: {str(e)}")
+
 
 async def distribute_profits(total_profit: float):
     """Distribute profits/losses proportionally to users"""
