@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Header
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -11,6 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger("uvicorn")
 app = FastAPI(title="MT5 Community Trading API")
 
 # CORS
