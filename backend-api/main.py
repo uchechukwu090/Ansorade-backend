@@ -175,12 +175,12 @@ async def shutdown():
 async def root():
     return {"message": "MT5 Community Trading API", "status": "running", "version": "2.0"}
 
-@app.get("/health")
-async def health():
+@app.get("/health/db")
+async def health_db():
     try:
         supabase = get_supabase_client()
         supabase.table("users").select().limit(1).execute()
-        return {"status": "healthy", "database": "connected", "api_key": "configured"}
+        return {"status": "healthy", "database": "connected"}
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}, 500
 
