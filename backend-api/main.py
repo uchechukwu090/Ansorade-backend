@@ -13,10 +13,12 @@ load_dotenv()
 
 app = FastAPI(title="MT5 Community Trading API")
 
-# CORS
+# CORS - Read from environment for security
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
