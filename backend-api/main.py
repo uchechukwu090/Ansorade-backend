@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException, Depends, Header
-import logging
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -12,15 +11,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("uvicorn")
-
 app = FastAPI(title="MT5 Community Trading API")
 
-# CORS
+# CORS - Read from environment for security
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -179,12 +177,12 @@ async def shutdown():
 async def root():
     return {"message": "MT5 Community Trading API", "status": "running", "version": "2.0"}
 
-@app.get("/health/db")
-async def health_db():
+@app.get("/health")
+async def health():
     try:
         supabase = get_supabase_client()
         supabase.table("users").select().limit(1).execute()
-        return {"status": "healthy", "database": "connected"}
+        return {"status": "healthy", "database": "connected", "api_key": "configured"}
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}, 500
 
