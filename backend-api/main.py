@@ -29,6 +29,20 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
 
+# Account Configuration
+ACCOUNT_MODE = os.getenv("ACCOUNT_MODE", "demo")  # "demo" or "real"
+DEMO_ACCOUNT = os.getenv("DEMO_ACCOUNT", "")
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "")
+DEMO_SERVER = os.getenv("DEMO_SERVER", "FBS-Demo")
+REAL_ACCOUNT = os.getenv("REAL_ACCOUNT", "")
+REAL_PASSWORD = os.getenv("REAL_PASSWORD", "")
+REAL_SERVER = os.getenv("REAL_SERVER", "FBS-Real")
+
+print(f"🔧 Account Mode: {ACCOUNT_MODE.upper()}")
+print(f"   Demo Account: {DEMO_ACCOUNT if DEMO_ACCOUNT else 'Not configured'}")
+print(f"   Real Account: {REAL_ACCOUNT if REAL_ACCOUNT else 'Not configured'}")
+print(f"   CORS Origins: {ALLOWED_ORIGINS}")
+
 # Signal Generator Integration
 SIGNAL_GENERATOR_URL = os.getenv("SIGNAL_GENERATOR_URL", "https://anso-vision-backend.onrender.com")
 TRADING_BACKEND_URL = os.getenv("TRADING_BACKEND_URL", "http://localhost:8000")
@@ -379,12 +393,47 @@ async def get_account_stats():
         users = supabase.table("users").select("investment").execute()
         total_investment = sum(u["investment"] for u in users.data) if users.data else 0
         
+        # Get current account config
+        current_account = DEMO_ACCOUNT if ACCOUNT_MODE == "demo" else REAL_ACCOUNT
+        current_server = DEMO_SERVER if ACCOUNT_MODE == "demo" else REAL_SERVER
+        
         return {
             "account": account_state.data[0] if account_state.data else {},
-            "total_investment": float(total_investment)
+            "total_investment": float(total_investment),
+            "account_mode": ACCOUNT_MODE,
+            "account_number": current_account,
+            "server": current_server,
+            "is_demo": ACCOUNT_MODE == "demo"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching account stats: {str(e)}")
+
+@app.get("/api/account/config")
+async def get_account_config():
+    """Get MT5 account configuration for EA"""
+    try:
+        if ACCOUNT_MODE == "demo":
+            if not DEMO_ACCOUNT or not DEMO_PASSWORD:
+                raise HTTPException(status_code=500, detail="Demo account not configured")
+            return {
+                "mode": "demo",
+                "account": DEMO_ACCOUNT,
+                "password": DEMO_PASSWORD,
+                "server": DEMO_SERVER
+            }
+        else:
+            if not REAL_ACCOUNT or not REAL_PASSWORD:
+                raise HTTPException(status_code=500, detail="Real account not configured")
+            return {
+                "mode": "real",
+                "account": REAL_ACCOUNT,
+                "password": REAL_PASSWORD,
+                "server": REAL_SERVER
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting account config: {str(e)}")
 
 @app.get("/api/trades/history")
 async def get_trades_history(limit: int = 50):
