@@ -23,6 +23,15 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
+
+# ✅ Fix: Skip API key check for OPTIONS requests (CORS preflight)
+async def verify_api_key(request: Request, x_api_key: str = Header(None)):
+    if request.method == "OPTIONS":
+        return None  # allow preflight through without API key
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    return x_api_key
 
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
 
