@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -20,9 +20,20 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
+
+# ✅ FIXED: Single verify_api_key function
+async def verify_api_key(request: Request, x_api_key: str = Header(None)):
+    # Allow preflight through
+    if request.method == "OPTIONS":
+        return None
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    return x_api_key
 
 # Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -61,12 +72,13 @@ def get_supabase_client():
 class Signal(BaseModel):
     symbol: str
     action: str  # BUY or SELL
-    volume: float
+    volume: float = 0.01
     sl: Optional[float] = None
     tp: Optional[float] = None
     signal_id: Optional[str] = None
     confidence: Optional[float] = None
     timeframe: Optional[str] = None
+    entry: Optional[float] = None
 
 class AccountUpdate(BaseModel):
     balance: float
@@ -90,12 +102,6 @@ class User(BaseModel):
     user_id: str
     email: str
     investment: float = 0.0
-
-# API Key verification
-async def verify_api_key(x_api_key: str = Header(None)):
-    if x_api_key != API_SECRET_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    return x_api_key
 
 # Signal Generator Integration Functions
 async def fetch_signal_from_generator(symbol: str, candles: List[float], timeframe: str = "1h"):
@@ -200,16 +206,22 @@ async def health():
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}, 500
 
+# ✅ FIXED: Proper POST with API key dependency
 @app.post("/api/signal")
-async def receive_signal(signal: Signal, api_key: str = Depends(verify_api_key)):
-    """Receive trading signal from signal generator"""
+async def receive_signal(signal: Signal, request: Request, x_api_key: str = Header(None)):
+    """✅ FIXED: Receive trading signal from signal generator"""
     try:
+        # Verify API key
+        if x_api_key != API_SECRET_KEY:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
         supabase = get_supabase_client()
         
         response = supabase.table("signals").insert({
             "symbol": signal.symbol,
-            "action": signal.action,
+            "action": signal.action.upper(),
             "volume": signal.volume,
+            "entry": signal.entry,
             "sl": signal.sl,
             "tp": signal.tp,
             "confidence": signal.confidence,
@@ -221,7 +233,9 @@ async def receive_signal(signal: Signal, api_key: str = Depends(verify_api_key))
         signal_id = response.data[0]["id"] if response.data else None
         print(f"✅ Signal stored: {signal.symbol} {signal.action}")
         
-        return {"message": "Signal received", "signal_id": signal_id}
+        return {"message": "Signal received", "signal_id": signal_id, "status": "stored"}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error storing signal: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error storing signal: {str(e)}")
@@ -235,7 +249,8 @@ async def manual_signal(signal: Signal):
         response = supabase.table("signals").insert({
             "symbol": signal.symbol,
             "action": signal.action.upper(),
-            "volume": signal.volume,
+            "volume": signal.volume or 0.01,
+            "entry": signal.entry,
             "sl": signal.sl,
             "tp": signal.tp,
             "confidence": signal.confidence or 0.85,
@@ -255,6 +270,7 @@ async def manual_signal(signal: Signal):
                 "symbol": signal.symbol,
                 "action": signal.action.upper(),
                 "volume": signal.volume,
+                "entry": signal.entry,
                 "sl": signal.sl,
                 "tp": signal.tp,
                 "status": "pending"
@@ -265,9 +281,12 @@ async def manual_signal(signal: Signal):
         raise HTTPException(status_code=500, detail=f"Error creating signal: {str(e)}")
 
 @app.get("/api/signals/pending")
-async def get_pending_signals(api_key: str = Depends(verify_api_key)):
+async def get_pending_signals(x_api_key: str = Header(None)):
     """MT5 EA polls this endpoint for new signals"""
     try:
+        if x_api_key != API_SECRET_KEY:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
         supabase = get_supabase_client()
         
         signals = supabase.table("signals").select("*").eq("status", "pending").order("created_at", desc=False).limit(10).execute()
@@ -277,13 +296,18 @@ async def get_pending_signals(api_key: str = Depends(verify_api_key)):
             supabase.table("signals").update({"status": "processing"}).in_("id", signal_ids).execute()
         
         return signals.data or []
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching signals: {str(e)}")
 
 @app.post("/api/trades/confirm")
-async def confirm_trade(trade: TradeConfirmation, api_key: str = Depends(verify_api_key)):
+async def confirm_trade(trade: TradeConfirmation, x_api_key: str = Header(None)):
     """MT5 EA confirms trade execution"""
     try:
+        if x_api_key != API_SECRET_KEY:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
         supabase = get_supabase_client()
         
         supabase.table("trades").insert({
@@ -298,13 +322,18 @@ async def confirm_trade(trade: TradeConfirmation, api_key: str = Depends(verify_
         
         print(f"✅ Trade confirmed: {trade.symbol} {trade.action}")
         return {"message": "Trade confirmed"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error confirming trade: {str(e)}")
 
 @app.post("/api/account/update")
-async def update_account(account: AccountUpdate, api_key: str = Depends(verify_api_key)):
+async def update_account(account: AccountUpdate, x_api_key: str = Header(None)):
     """MT5 EA sends account updates"""
     try:
+        if x_api_key != API_SECRET_KEY:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
         supabase = get_supabase_client()
         
         supabase.table("account_state").insert({
@@ -320,6 +349,8 @@ async def update_account(account: AccountUpdate, api_key: str = Depends(verify_a
         
         print(f"✅ Account updated: Balance={account.balance}, Profit={account.profit}")
         return {"message": "Account updated"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating account: {str(e)}")
 
@@ -409,9 +440,12 @@ async def get_account_stats():
         raise HTTPException(status_code=500, detail=f"Error fetching account stats: {str(e)}")
 
 @app.get("/api/account/config")
-async def get_account_config():
+async def get_account_config(x_api_key: str = Header(None)):
     """Get MT5 account configuration for EA"""
     try:
+        if x_api_key != API_SECRET_KEY:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        
         if ACCOUNT_MODE == "demo":
             if not DEMO_ACCOUNT or not DEMO_PASSWORD:
                 raise HTTPException(status_code=500, detail="Demo account not configured")
@@ -446,8 +480,6 @@ async def get_trades_history(limit: int = 50):
         return trades.data or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching trades: {str(e)}")
-
-
 
 async def distribute_profits(total_profit: float):
     """Distribute profits/losses proportionally to users"""
