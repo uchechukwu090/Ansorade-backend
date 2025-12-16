@@ -218,13 +218,27 @@ async def health():
 # ✅ FIXED: Proper POST with API key dependency
 @app.post("/api/signal")
 async def receive_signal(signal: Signal, request: Request, x_api_key: str = Header(None)):
-    """✅ FIXED: Receive trading signal from signal generator"""
+    """✅ FIXED: Receive trading signal from signal generator WITH ENHANCED LOGGING"""
     try:
         # Verify API key
         if x_api_key != API_SECRET_KEY:
+            print(f"❌ API Key mismatch: received={x_api_key}, expected={API_SECRET_KEY}")
             raise HTTPException(status_code=403, detail="Invalid API key")
         
         supabase = get_supabase_client()
+        
+        # ✅ ENHANCED LOGGING
+        print("\n" + "="*70)
+        print("🎯 NEW SIGNAL RECEIVED FROM GENERATOR")
+        print("="*70)
+        print(f"Symbol: {signal.symbol}")
+        print(f"Action: {signal.action.upper()}")
+        print(f"Entry: {signal.entry}")
+        print(f"TP: {signal.tp} | SL: {signal.sl}")
+        print(f"Volume: {signal.volume}")
+        print(f"Confidence: {signal.confidence:.1%}" if signal.confidence else "Confidence: N/A")
+        print(f"Timeframe: {signal.timeframe}")
+        print("="*70)
         
         response = supabase.table("signals").insert({
             "symbol": signal.symbol,
@@ -240,13 +254,23 @@ async def receive_signal(signal: Signal, request: Request, x_api_key: str = Head
         }).execute()
         
         signal_id = response.data[0]["id"] if response.data else None
-        print(f"✅ Signal stored: {signal.symbol} {signal.action}")
+        print(f"✅ Signal stored in Supabase: ID={signal_id}")
+        print(f"📡 Signal now available for MT5 EA to fetch")
+        print()
         
-        return {"message": "Signal received", "signal_id": signal_id, "status": "stored"}
+        return {
+            "message": "Signal received and stored",
+            "signal_id": signal_id,
+            "status": "stored",
+            "symbol": signal.symbol,
+            "action": signal.action.upper()
+        }
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Error storing signal: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error storing signal: {str(e)}")
 
 @app.post("/api/signals/manual")

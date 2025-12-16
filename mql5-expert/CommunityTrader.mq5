@@ -1,48 +1,66 @@
 //+------------------------------------------------------------------+
 //|                                           CommunityTrader.mq5    |
-//|                          ✅ FIXED: Production-Ready EA            |
+//|              ✅ FIXED: Production-Ready EA with Full Logging     |
 //+------------------------------------------------------------------+
 #property copyright "Community Trading"
-#property version   "2.00"
+#property version   "2.01"
 #property strict
 
 #include <Trade\Trade.mqh>
 
-// ✅ FIXED: Use environment variables or proper configuration
-input string API_URL = "https://ansorade-backend.onrender.com";  // Production URL
-input string API_KEY = "Mr.creative090";                          // API secret key
-input int CHECK_INTERVAL = 5;                                     // 5 seconds between checks
-input double RISK_PERCENT = 1.0;                                  // Risk 1% per trade
+// ✅ Configuration with ENHANCED LOGGING
+input string API_URL = "https://ansorade-backend.onrender.com";
+input string API_KEY = "Mr.creative090";
+input int CHECK_INTERVAL = 5;
+input double RISK_PERCENT = 1.0;
 
 CTrade trade;
 datetime lastSignalCheck = 0;
 datetime lastAccountUpdate = 0;
+
+// ✅ NEW: File logging for persistent record
+string LOG_FILE = "Community_Trader_" + TimeToString(TimeCurrent(), TIME_DATE) + ".log";
+
+//+------------------------------------------------------------------+
+//| Log to file                                                       |
+//+------------------------------------------------------------------+
+void LogToFile(string message)
+{
+    int handle = FileOpen(LOG_FILE, FILE_READ|FILE_WRITE|FILE_TXT);
+    if(handle != INVALID_HANDLE)
+    {
+        FileSeek(handle, 0, SEEK_END);
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + " | " + message);
+        FileClose(handle);
+    }
+    Print(message);
+}
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                     |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    Print("════════════════════════════════════════════════");
-    Print("✅ COMMUNITY TRADER EA STARTED");
-    Print("════════════════════════════════════════════════");
-    Print("Server: ", AccountInfoString(ACCOUNT_SERVER));
-    Print("Account: ", AccountInfoInteger(ACCOUNT_LOGIN));
-    Print("Account Name: ", AccountInfoString(ACCOUNT_NAME));
-    Print("Balance: $", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
-    Print("Equity: $", DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2));
-    Print("");
-    Print("API Configuration:");
-    Print("  URL: ", API_URL);
-    Print("  API Key: ", API_KEY);
-    Print("  Check Interval: ", CHECK_INTERVAL, " seconds");
-    Print("════════════════════════════════════════════════");
+    LogToFile("════════════════════════════════════════════════");
+    LogToFile("✅ COMMUNITY TRADER EA STARTED (v2.01)");
+    LogToFile("════════════════════════════════════════════════");
+    LogToFile("Server: " + AccountInfoString(ACCOUNT_SERVER));
+    LogToFile("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+    LogToFile("Account Name: " + AccountInfoString(ACCOUNT_NAME));
+    LogToFile("Balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+    LogToFile("Equity: $" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2));
+    LogToFile("");
+    LogToFile("API Configuration:");
+    LogToFile("  URL: " + API_URL);
+    LogToFile("  API Key: " + API_KEY);
+    LogToFile("  Check Interval: " + IntegerToString(CHECK_INTERVAL) + " seconds");
+    LogToFile("  Log File: " + LOG_FILE);
+    LogToFile("════════════════════════════════════════════════");
     
-    // ✅ NEW: Set trade configuration
     trade.SetDeviationInPoints(10);
     trade.SetAsyncMode(false);
     
-    EventSetTimer(1);  // 1 second timer
+    EventSetTimer(1);
     return(INIT_SUCCEEDED);
 }
 
@@ -52,9 +70,9 @@ int OnInit()
 void OnDeinit(const int reason)
 {
     EventKillTimer();
-    Print("════════════════════════════════════════════════");
-    Print("❌ COMMUNITY TRADER EA STOPPED");
-    Print("════════════════════════════════════════════════");
+    LogToFile("════════════════════════════════════════════════");
+    LogToFile("❌ COMMUNITY TRADER EA STOPPED");
+    LogToFile("════════════════════════════════════════════════");
 }
 
 //+------------------------------------------------------------------+
@@ -62,14 +80,12 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-    // ✅ FIXED: Proper timing to avoid spam
     if(TimeCurrent() - lastSignalCheck >= CHECK_INTERVAL)
     {
         CheckForSignals();
         lastSignalCheck = TimeCurrent();
     }
     
-    // Send account update every 10 seconds
     if(TimeCurrent() - lastAccountUpdate >= 10)
     {
         SendAccountUpdate();
@@ -89,47 +105,56 @@ void CheckForSignals()
     
     string url = API_URL + "/api/signals/pending";
     
-    Print("📡 Checking for signals: ", url);
+    LogToFile("📡 [POLL] Checking for pending signals at: " + url);
     
     int res = WebRequest("GET", url, headers, 10000, data, result, headers);
     
     if(res == 200)
     {
         string response = CharArrayToString(result);
-        Print("✅ Got signals response: ", StringSubstr(response, 0, 100));
-        ProcessSignals(response);
+        LogToFile("✅ [POLL] Got signals response (" + IntegerToString(StringLen(response)) + " bytes)");
+        
+        if(response != "" && response != "[]")
+        {
+            LogToFile("📊 [PARSE] Processing response: " + StringSubstr(response, 0, 200));
+            ProcessSignals(response);
+        }
+        else
+        {
+            LogToFile("ℹ️  [POLL] No pending signals in response");
+        }
     }
     else if(res > 0)
     {
-        Print("⚠️ API returned: ", res, " (", GetHTTPErrorDescription(res), ")");
+        LogToFile("⚠️  [POLL] API returned HTTP " + IntegerToString(res) + " (" + GetHTTPErrorDescription(res) + ")");
     }
     else
     {
-        Print("❌ WebRequest failed. Code: ", res);
-        Print("   Make sure EA has WebRequest permissions!");
-        Print("   Check Tools → Options → Expert Advisors → Allow WebRequest");
+        LogToFile("❌ [POLL] WebRequest failed. Code: " + IntegerToString(res));
+        LogToFile("   Make sure 'Allow WebRequest' is enabled in EA settings!");
     }
 }
 
 //+------------------------------------------------------------------+
-//| Process trading signals (handles JSON array)                       |
+//| Process trading signals                                            |
 //+------------------------------------------------------------------+
 void ProcessSignals(string jsonResponse)
 {
-    // ✅ FIXED: Handle empty response
     if(jsonResponse == "" || jsonResponse == "[]")
     {
-        Print("ℹ️ No pending signals");
         return;
     }
     
-    // ✅ FIXED: Handle single signal or array
+    LogToFile("🔍 [PARSE] Detecting signal format...");
+    
     if(StringFind(jsonResponse, "[") == 0)
     {
-        // Array of signals
-        Print("📊 Processing ", CountSignals(jsonResponse), " signals");
+        int signalCount = CountSignals(jsonResponse);
+        LogToFile("📊 [PARSE] Array detected with " + IntegerToString(signalCount) + " signals");
         
-        int pos = 1;  // Skip opening bracket
+        int pos = 1;
+        int processedCount = 0;
+        
         while(pos < StringLen(jsonResponse))
         {
             int signalStart = StringFind(jsonResponse, "{", pos);
@@ -140,13 +165,16 @@ void ProcessSignals(string jsonResponse)
             
             string singleSignal = StringSubstr(jsonResponse, signalStart, signalEnd - signalStart + 1);
             ProcessSingleSignal(singleSignal);
+            processedCount++;
             
             pos = signalEnd + 1;
         }
+        
+        LogToFile("✅ [PARSE] Processed " + IntegerToString(processedCount) + " signals");
     }
     else
     {
-        // Single signal object
+        LogToFile("📊 [PARSE] Single object detected");
         ProcessSingleSignal(jsonResponse);
     }
 }
@@ -164,27 +192,27 @@ void ProcessSingleSignal(string signal)
     double confidence = StringToDouble(ExtractField(signal, "confidence"));
     int signalId = (int)StringToDouble(ExtractField(signal, "id"));
     
-    Print("");
-    Print("═══════════════════════════════════");
-    Print("📈 NEW SIGNAL RECEIVED");
-    Print("═══════════════════════════════════");
-    Print("Action: ", action);
-    Print("Symbol: ", symbol);
-    Print("Volume: ", volume);
-    Print("Entry: ", ExtractField(signal, "entry"));
-    Print("TP: ", tp);
-    Print("SL: ", sl);
-    Print("Confidence: ", DoubleToString(confidence * 100, 1), "%");
-    Print("═══════════════════════════════════");
+    LogToFile("");
+    LogToFile("═══════════════════════════════════");
+    LogToFile("📈 NEW SIGNAL - VALIDATION START");
+    LogToFile("═══════════════════════════════════");
+    LogToFile("Signal ID: " + IntegerToString(signalId));
+    LogToFile("Symbol: " + symbol);
+    LogToFile("Action: " + action);
+    LogToFile("Volume: " + DoubleToString(volume, 2));
+    LogToFile("Entry: MARKET");
+    LogToFile("TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
+    LogToFile("Confidence: " + DoubleToString(confidence * 100, 1) + "%");
+    LogToFile("═══════════════════════════════════");
     
-    // ✅ FIXED: Validate signal before trading
     if(!ValidateSignal(action, symbol, volume, tp, sl))
     {
-        Print("❌ Signal validation failed!");
+        LogToFile("❌ VALIDATION FAILED - ABORTING TRADE");
         return;
     }
     
-    // Execute trade
+    LogToFile("✅ VALIDATION PASSED - EXECUTING TRADE");
+    
     if(StringUpper(action) == "BUY")
     {
         ExecuteBuy(symbol, volume, sl, tp);
@@ -195,7 +223,7 @@ void ProcessSingleSignal(string signal)
     }
     else
     {
-        Print("⚠️ Unknown action: ", action);
+        LogToFile("⚠️  Unknown action: " + action);
     }
 }
 
@@ -204,49 +232,49 @@ void ProcessSingleSignal(string signal)
 //+------------------------------------------------------------------+
 bool ValidateSignal(string action, string symbol, double volume, double tp, double sl)
 {
-    // Check if symbol exists
     if(!SymbolSelect(symbol, true))
     {
-        Print("❌ Symbol not found: ", symbol);
+        LogToFile("❌ [VALIDATE] Symbol not found: " + symbol);
         return false;
     }
+    LogToFile("✅ [VALIDATE] Symbol exists: " + symbol);
     
-    // Check volume
     if(volume <= 0 || volume > 100)
     {
-        Print("❌ Invalid volume: ", volume);
+        LogToFile("❌ [VALIDATE] Invalid volume: " + DoubleToString(volume, 2));
         return false;
     }
+    LogToFile("✅ [VALIDATE] Volume valid: " + DoubleToString(volume, 2));
     
-    // Check TP/SL
     if(tp <= 0 || sl <= 0)
     {
-        Print("❌ Invalid TP/SL: TP=", tp, " SL=", sl);
+        LogToFile("❌ [VALIDATE] Invalid TP/SL: TP=" + DoubleToString(tp, 5) + " SL=" + DoubleToString(sl, 5));
         return false;
     }
+    LogToFile("✅ [VALIDATE] TP/SL valid");
     
-    // Check TP > SL for BUY, TP < SL for SELL
-    if(action == "BUY" && tp <= sl)
+    if(StringUpper(action) == "BUY" && tp <= sl)
     {
-        Print("❌ BUY: TP must be > SL");
+        LogToFile("❌ [VALIDATE] BUY: TP must be > SL");
         return false;
     }
-    else if(action == "SELL" && tp >= sl)
+    else if(StringUpper(action) == "SELL" && tp >= sl)
     {
-        Print("❌ SELL: TP must be < SL");
+        LogToFile("❌ [VALIDATE] SELL: TP must be < SL");
         return false;
     }
+    LogToFile("✅ [VALIDATE] TP/SL relationship valid for " + action);
     
-    // Check balance
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double minBalance = (AccountInfoDouble(ACCOUNT_MARGIN_REQUIRED) * volume) / 100;
-    if(balance < minBalance)
+    double margin_required = SymbolInfoDouble(symbol, SYMBOL_MARGIN_INITIAL) * volume;
+    
+    if(balance < margin_required)
     {
-        Print("❌ Insufficient balance. Need: $", DoubleToString(minBalance, 2), " Have: $", DoubleToString(balance, 2));
+        LogToFile("❌ [VALIDATE] Insufficient balance. Need: $" + DoubleToString(margin_required, 2) + " Have: $" + DoubleToString(balance, 2));
         return false;
     }
+    LogToFile("✅ [VALIDATE] Sufficient balance: $" + DoubleToString(balance, 2));
     
-    Print("✅ Signal validation passed!");
     return true;
 }
 
@@ -255,37 +283,32 @@ bool ValidateSignal(string action, string symbol, double volume, double tp, doub
 //+------------------------------------------------------------------+
 void ExecuteBuy(string symbol, double volume, double sl, double tp)
 {
-    Print("");
-    Print("🔵 EXECUTING BUY ORDER");
-    Print("Symbol: ", symbol);
-    Print("Volume: ", volume);
-    Print("Entry: MARKET");
-    Print("TP: ", tp);
-    Print("SL: ", sl);
+    LogToFile("");
+    LogToFile("🔵 [EXECUTE] BUY ORDER EXECUTION STARTED");
+    LogToFile("   Symbol: " + symbol);
+    LogToFile("   Volume: " + DoubleToString(volume, 2));
     
     double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    LogToFile("   Current ASK: " + DoubleToString(ask, 5));
+    LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
     
-    // ✅ FIXED: Use proper trade execution with error handling
-    if(!trade.Buy(volume, symbol, ask, sl, tp, "Community Trade"))
+    if(!trade.Buy(volume, symbol, ask, sl, tp, "CT_" + IntegerToString(rand())))
     {
-        Print("❌ BUY FAILED!");
-        Print("   Error Code: ", trade.ResultRetcode());
-        Print("   Error Desc: ", trade.ResultRetcodeDescription());
-        Print("   Volume: ", volume);
-        Print("   Ask Price: ", ask);
-        Print("   SL: ", sl, " TP: ", tp);
+        LogToFile("❌ [EXECUTE] BUY FAILED!");
+        LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
+        LogToFile("   Description: " + trade.ResultRetcodeDescription());
         return;
     }
     
     ulong ticket = trade.ResultOrder();
     double orderPrice = trade.ResultPrice();
     
-    Print("✅ BUY ORDER EXECUTED!");
-    Print("   Ticket: ", ticket);
-    Print("   Price: ", DoubleToString(orderPrice, 5));
-    Print("   Volume: ", volume);
+    LogToFile("✅ [EXECUTE] BUY ORDER EXECUTED SUCCESSFULLY!");
+    LogToFile("   Ticket: " + IntegerToString(ticket));
+    LogToFile("   Execution Price: " + DoubleToString(orderPrice, 5));
+    LogToFile("   Volume: " + DoubleToString(volume, 2));
+    LogToFile("");
     
-    // Send confirmation to API
     SendTradeConfirmation(ticket, "BUY", symbol, volume, orderPrice);
 }
 
@@ -294,37 +317,32 @@ void ExecuteBuy(string symbol, double volume, double sl, double tp)
 //+------------------------------------------------------------------+
 void ExecuteSell(string symbol, double volume, double sl, double tp)
 {
-    Print("");
-    Print("🔴 EXECUTING SELL ORDER");
-    Print("Symbol: ", symbol);
-    Print("Volume: ", volume);
-    Print("Entry: MARKET");
-    Print("TP: ", tp);
-    Print("SL: ", sl);
+    LogToFile("");
+    LogToFile("🔴 [EXECUTE] SELL ORDER EXECUTION STARTED");
+    LogToFile("   Symbol: " + symbol);
+    LogToFile("   Volume: " + DoubleToString(volume, 2));
     
     double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    LogToFile("   Current BID: " + DoubleToString(bid, 5));
+    LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
     
-    // ✅ FIXED: Use proper trade execution with error handling
-    if(!trade.Sell(volume, symbol, bid, sl, tp, "Community Trade"))
+    if(!trade.Sell(volume, symbol, bid, sl, tp, "CT_" + IntegerToString(rand())))
     {
-        Print("❌ SELL FAILED!");
-        Print("   Error Code: ", trade.ResultRetcode());
-        Print("   Error Desc: ", trade.ResultRetcodeDescription());
-        Print("   Volume: ", volume);
-        Print("   Bid Price: ", bid);
-        Print("   SL: ", sl, " TP: ", tp);
+        LogToFile("❌ [EXECUTE] SELL FAILED!");
+        LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
+        LogToFile("   Description: " + trade.ResultRetcodeDescription());
         return;
     }
     
     ulong ticket = trade.ResultOrder();
     double orderPrice = trade.ResultPrice();
     
-    Print("✅ SELL ORDER EXECUTED!");
-    Print("   Ticket: ", ticket);
-    Print("   Price: ", DoubleToString(orderPrice, 5));
-    Print("   Volume: ", volume);
+    LogToFile("✅ [EXECUTE] SELL ORDER EXECUTED SUCCESSFULLY!");
+    LogToFile("   Ticket: " + IntegerToString(ticket));
+    LogToFile("   Execution Price: " + DoubleToString(orderPrice, 5));
+    LogToFile("   Volume: " + DoubleToString(volume, 2));
+    LogToFile("");
     
-    // Send confirmation to API
     SendTradeConfirmation(ticket, "SELL", symbol, volume, orderPrice);
 }
 
@@ -333,13 +351,21 @@ void ExecuteSell(string symbol, double volume, double sl, double tp)
 //+------------------------------------------------------------------+
 void SendAccountUpdate()
 {
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double margin = AccountInfoDouble(ACCOUNT_MARGIN);
+    double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+    
     string json = "{";
-    json += "\"balance\":" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + ",";
-    json += "\"equity\":" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2) + ",";
-    json += "\"margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2) + ",";
-    json += "\"free_margin\":" + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2) + ",";
-    json += "\"profit\":" + DoubleToString(AccountInfoDouble(ACCOUNT_PROFIT), 2);
+    json += "\"balance\":" + DoubleToString(balance, 2) + ",";
+    json += "\"equity\":" + DoubleToString(equity, 2) + ",";
+    json += "\"margin\":" + DoubleToString(margin, 2) + ",";
+    json += "\"free_margin\":" + DoubleToString(free_margin, 2) + ",";
+    json += "\"profit\":" + DoubleToString(profit, 2);
     json += "}";
+    
+    LogToFile("📊 [ACCOUNT] Sending account update - Balance: $" + DoubleToString(balance, 2) + " Profit: $" + DoubleToString(profit, 2));
     
     SendToAPI("/api/account/update", json, "POST");
 }
@@ -357,11 +383,13 @@ void SendTradeConfirmation(ulong ticket, string action, string symbol, double vo
     json += "\"price\":" + DoubleToString(price, 5);
     json += "}";
     
+    LogToFile("📤 [CONFIRM] Sending trade confirmation - Ticket: " + IntegerToString(ticket));
+    
     SendToAPI("/api/trades/confirm", json, "POST");
 }
 
 //+------------------------------------------------------------------+
-//| Send data to API with proper error handling                        |
+//| Send data to API                                                  |
 //+------------------------------------------------------------------+
 void SendToAPI(string endpoint, string jsonData, string method = "POST")
 {
@@ -378,22 +406,27 @@ void SendToAPI(string endpoint, string jsonData, string method = "POST")
     
     string url = API_URL + endpoint;
     
-    Print("📡 Sending ", method, " to: ", url);
+    LogToFile("📡 [API] Sending " + method + " to: " + url);
     
     int res = WebRequest(method, url, headers, 10000, data, result, headers);
     
     if(res == 200)
     {
-        Print("✅ API Response: ", CharArrayToString(result));
+        string response = CharArrayToString(result);
+        LogToFile("✅ [API] Response: " + StringSubstr(response, 0, 100));
+    }
+    else if(res > 0)
+    {
+        LogToFile("⚠️  [API] HTTP " + IntegerToString(res) + ": " + GetHTTPErrorDescription(res));
     }
     else
     {
-        Print("❌ API Error: ", res, " (", GetHTTPErrorDescription(res), ")");
+        LogToFile("❌ [API] WebRequest error code: " + IntegerToString(res));
     }
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Extract JSON field value                                   |
+//| Extract JSON field value                                           |
 //+------------------------------------------------------------------+
 string ExtractField(string json, string fieldName)
 {
@@ -405,7 +438,6 @@ string ExtractField(string json, string fieldName)
     
     start += StringLen(searchStr);
     
-    // Skip whitespace
     while(start < StringLen(json) && (json[start] == ' ' || json[start] == '\t'))
         start++;
     
@@ -414,7 +446,6 @@ string ExtractField(string json, string fieldName)
     
     if(charAtEnd == '"')
     {
-        // String value
         end++;
         while(end < StringLen(json) && json[end] != '"')
             end++;
@@ -422,7 +453,6 @@ string ExtractField(string json, string fieldName)
     }
     else
     {
-        // Numeric value
         while(end < StringLen(json) && json[end] != ',' && json[end] != '}' && json[end] != ']')
             end++;
         return StringSubstr(json, start, end - start);
@@ -430,7 +460,7 @@ string ExtractField(string json, string fieldName)
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Count number of signals in array                           |
+//| Count signals in array                                             |
 //+------------------------------------------------------------------+
 int CountSignals(string json)
 {
@@ -447,7 +477,7 @@ int CountSignals(string json)
 }
 
 //+------------------------------------------------------------------+
-//| Helper: Get HTTP error description                                 |
+//| Get HTTP error description                                         |
 //+------------------------------------------------------------------+
 string GetHTTPErrorDescription(int code)
 {
