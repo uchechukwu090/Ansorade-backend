@@ -26,11 +26,11 @@ string LOG_FILE = "Community_Trader_" + TimeToString(TimeCurrent(), TIME_DATE) +
 //+------------------------------------------------------------------+
 void LogToFile(string message)
 {
-    int handle = FileOpen(LOG_FILE, FILE_READ|FILE_WRITE|FILE_TXT);
-    if(handle != INVALID_HANDLE)
+    int handle = FileOpen(LOG_FILE, FILE_READ | FILE_WRITE | FILE_TXT);
+    if (handle != INVALID_HANDLE)
     {
         FileSeek(handle, 0, SEEK_END);
-        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS) + " | " + message);
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES | TIME_SECONDS) + " | " + message);
         FileClose(handle);
     }
     Print(message);
@@ -56,12 +56,12 @@ int OnInit()
     LogToFile("  Check Interval: " + IntegerToString(CHECK_INTERVAL) + " seconds");
     LogToFile("  Log File: " + LOG_FILE);
     LogToFile("════════════════════════════════════════════════");
-    
+
     trade.SetDeviationInPoints(10);
     trade.SetAsyncMode(false);
-    
+
     EventSetTimer(1);
-    return(INIT_SUCCEEDED);
+    return (INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
@@ -80,13 +80,13 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTimer()
 {
-    if(TimeCurrent() - lastSignalCheck >= CHECK_INTERVAL)
+    if (TimeCurrent() - lastSignalCheck >= CHECK_INTERVAL)
     {
         CheckForSignals();
         lastSignalCheck = TimeCurrent();
     }
-    
-    if(TimeCurrent() - lastAccountUpdate >= 10)
+
+    if (TimeCurrent() - lastAccountUpdate >= 10)
     {
         SendAccountUpdate();
         lastAccountUpdate = TimeCurrent();
@@ -102,19 +102,19 @@ void CheckForSignals()
     char result[];
     string headers = "X-API-Key: " + API_KEY + "\r\n";
     headers += "Content-Type: application/json\r\n";
-    
+
     string url = API_URL + "/api/signals/pending";
-    
+
     LogToFile("📡 [POLL] Checking for pending signals at: " + url);
-    
+
     int res = WebRequest("GET", url, headers, 10000, data, result, headers);
-    
-    if(res == 200)
+
+    if (res == 200)
     {
         string response = CharArrayToString(result);
         LogToFile("✅ [POLL] Got signals response (" + IntegerToString(StringLen(response)) + " bytes)");
-        
-        if(response != "" && response != "[]")
+
+        if (response != "" && response != "[]")
         {
             LogToFile("📊 [PARSE] Processing response: " + StringSubstr(response, 0, 200));
             ProcessSignals(response);
@@ -124,7 +124,7 @@ void CheckForSignals()
             LogToFile("ℹ️  [POLL] No pending signals in response");
         }
     }
-    else if(res > 0)
+    else if (res > 0)
     {
         LogToFile("⚠️  [POLL] API returned HTTP " + IntegerToString(res) + " (" + GetHTTPErrorDescription(res) + ")");
     }
@@ -140,36 +140,36 @@ void CheckForSignals()
 //+------------------------------------------------------------------+
 void ProcessSignals(string jsonResponse)
 {
-    if(jsonResponse == "" || jsonResponse == "[]")
+    if (jsonResponse == "" || jsonResponse == "[]")
     {
         return;
     }
-    
+
     LogToFile("🔍 [PARSE] Detecting signal format...");
-    
-    if(StringFind(jsonResponse, "[") == 0)
+
+    if (StringFind(jsonResponse, "[") == 0)
     {
         int signalCount = CountSignals(jsonResponse);
         LogToFile("📊 [PARSE] Array detected with " + IntegerToString(signalCount) + " signals");
-        
+
         int pos = 1;
         int processedCount = 0;
-        
-        while(pos < StringLen(jsonResponse))
+
+        while (pos < StringLen(jsonResponse))
         {
             int signalStart = StringFind(jsonResponse, "{", pos);
-            if(signalStart < 0) break;
-            
+            if (signalStart < 0) break;
+
             int signalEnd = StringFind(jsonResponse, "}", signalStart);
-            if(signalEnd < 0) break;
-            
+            if (signalEnd < 0) break;
+
             string singleSignal = StringSubstr(jsonResponse, signalStart, signalEnd - signalStart + 1);
             ProcessSingleSignal(singleSignal);
             processedCount++;
-            
+
             pos = signalEnd + 1;
         }
-        
+
         LogToFile("✅ [PARSE] Processed " + IntegerToString(processedCount) + " signals");
     }
     else
@@ -180,7 +180,7 @@ void ProcessSignals(string jsonResponse)
 }
 
 //+------------------------------------------------------------------+
-//| Process a single signal                                            |
+//| Process a single signal                                           |
 //+------------------------------------------------------------------+
 void ProcessSingleSignal(string signal)
 {
@@ -191,7 +191,7 @@ void ProcessSingleSignal(string signal)
     double sl = StringToDouble(ExtractField(signal, "sl"));
     double confidence = StringToDouble(ExtractField(signal, "confidence"));
     int signalId = (int)StringToDouble(ExtractField(signal, "id"));
-    
+
     LogToFile("");
     LogToFile("═══════════════════════════════════");
     LogToFile("📈 NEW SIGNAL - VALIDATION START");
@@ -202,84 +202,84 @@ void ProcessSingleSignal(string signal)
     LogToFile("Volume: " + DoubleToString(volume, 2));
     LogToFile("Entry: MARKET");
     LogToFile("TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
-    LogToFile("Confidence: " + DoubleToString(confidence * 100, 1) + "%");
+    LogToFile("Confidence: " + DoubleToString(confidence * 100.0, 1) + "%");
     LogToFile("═══════════════════════════════════");
-    
-    if(!ValidateSignal(action, symbol, volume, tp, sl))
+
+    if (!ValidateSignal(action, symbol, volume, tp, sl))
     {
         LogToFile("❌ VALIDATION FAILED - ABORTING TRADE");
         return;
     }
-    
+
     LogToFile("✅ VALIDATION PASSED - EXECUTING TRADE");
-    
-    if(StringUpper(action) == "BUY")
+
+    if (StringCompare(StringUpper(action), "BUY") == 0)
     {
         ExecuteBuy(symbol, volume, sl, tp);
     }
-    else if(StringUpper(action) == "SELL")
+    else if (StringCompare(StringUpper(action), "SELL") == 0)
     {
         ExecuteSell(symbol, volume, sl, tp);
     }
     else
     {
-        LogToFile("⚠️  Unknown action: " + action);
+        LogToFile("⚠️ Unknown action: " + action);
     }
 }
 
 //+------------------------------------------------------------------+
-//| Validate signal parameters                                        |
+//| Validate signal parameters                                         |
 //+------------------------------------------------------------------+
 bool ValidateSignal(string action, string symbol, double volume, double tp, double sl)
 {
-    if(!SymbolSelect(symbol, true))
+    if (!SymbolSelect(symbol, true))
     {
         LogToFile("❌ [VALIDATE] Symbol not found: " + symbol);
         return false;
     }
     LogToFile("✅ [VALIDATE] Symbol exists: " + symbol);
-    
-    if(volume <= 0 || volume > 100)
+
+    if (volume <= 0 || volume > 100)
     {
         LogToFile("❌ [VALIDATE] Invalid volume: " + DoubleToString(volume, 2));
         return false;
     }
     LogToFile("✅ [VALIDATE] Volume valid: " + DoubleToString(volume, 2));
-    
-    if(tp <= 0 || sl <= 0)
+
+    if (tp <= 0 || sl <= 0)
     {
         LogToFile("❌ [VALIDATE] Invalid TP/SL: TP=" + DoubleToString(tp, 5) + " SL=" + DoubleToString(sl, 5));
         return false;
     }
     LogToFile("✅ [VALIDATE] TP/SL valid");
-    
-    if(StringUpper(action) == "BUY" && tp <= sl)
+
+    if (StringCompare(StringUpper(action), "BUY") == 0 && tp <= sl)
     {
         LogToFile("❌ [VALIDATE] BUY: TP must be > SL");
         return false;
     }
-    else if(StringUpper(action) == "SELL" && tp >= sl)
+    else if (StringCompare(StringUpper(action), "SELL") == 0 && tp >= sl)
     {
         LogToFile("❌ [VALIDATE] SELL: TP must be < SL");
         return false;
     }
     LogToFile("✅ [VALIDATE] TP/SL relationship valid for " + action);
-    
+
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double margin_required = SymbolInfoDouble(symbol, SYMBOL_MARGIN_INITIAL) * volume;
-    
-    if(balance < margin_required)
+
+    if (balance < margin_required)
     {
         LogToFile("❌ [VALIDATE] Insufficient balance. Need: $" + DoubleToString(margin_required, 2) + " Have: $" + DoubleToString(balance, 2));
         return false;
     }
     LogToFile("✅ [VALIDATE] Sufficient balance: $" + DoubleToString(balance, 2));
-    
+
     return true;
 }
 
 //+------------------------------------------------------------------+
-//| Execute Buy Order                                                  |
+//| Execute Buy Order                                                 |
 //+------------------------------------------------------------------+
 void ExecuteBuy(string symbol, double volume, double sl, double tp)
 {
@@ -287,33 +287,33 @@ void ExecuteBuy(string symbol, double volume, double sl, double tp)
     LogToFile("🔵 [EXECUTE] BUY ORDER EXECUTION STARTED");
     LogToFile("   Symbol: " + symbol);
     LogToFile("   Volume: " + DoubleToString(volume, 2));
-    
+
     double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
     LogToFile("   Current ASK: " + DoubleToString(ask, 5));
     LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
-    
-    if(!trade.Buy(volume, symbol, ask, sl, tp, "CT_" + IntegerToString(rand())))
+
+    if (!trade.Buy(volume, symbol, ask, sl, tp, "CT_" + IntegerToString(rand())))
     {
         LogToFile("❌ [EXECUTE] BUY FAILED!");
         LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
         LogToFile("   Description: " + trade.ResultRetcodeDescription());
         return;
     }
-    
+
     ulong ticket = trade.ResultOrder();
     double orderPrice = trade.ResultPrice();
-    
+
     LogToFile("✅ [EXECUTE] BUY ORDER EXECUTED SUCCESSFULLY!");
     LogToFile("   Ticket: " + IntegerToString(ticket));
     LogToFile("   Execution Price: " + DoubleToString(orderPrice, 5));
     LogToFile("   Volume: " + DoubleToString(volume, 2));
     LogToFile("");
-    
+
     SendTradeConfirmation(ticket, "BUY", symbol, volume, orderPrice);
 }
 
 //+------------------------------------------------------------------+
-//| Execute Sell Order                                                 |
+//| Execute Sell Order                                                |
 //+------------------------------------------------------------------+
 void ExecuteSell(string symbol, double volume, double sl, double tp)
 {
@@ -321,28 +321,28 @@ void ExecuteSell(string symbol, double volume, double sl, double tp)
     LogToFile("🔴 [EXECUTE] SELL ORDER EXECUTION STARTED");
     LogToFile("   Symbol: " + symbol);
     LogToFile("   Volume: " + DoubleToString(volume, 2));
-    
+
     double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
     LogToFile("   Current BID: " + DoubleToString(bid, 5));
     LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
-    
-    if(!trade.Sell(volume, symbol, bid, sl, tp, "CT_" + IntegerToString(rand())))
+
+    if (!trade.Sell(volume, symbol, bid, sl, tp, "CT_" + IntegerToString(rand())))
     {
         LogToFile("❌ [EXECUTE] SELL FAILED!");
         LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
         LogToFile("   Description: " + trade.ResultRetcodeDescription());
         return;
     }
-    
+
     ulong ticket = trade.ResultOrder();
     double orderPrice = trade.ResultPrice();
-    
+
     LogToFile("✅ [EXECUTE] SELL ORDER EXECUTED SUCCESSFULLY!");
     LogToFile("   Ticket: " + IntegerToString(ticket));
     LogToFile("   Execution Price: " + DoubleToString(orderPrice, 5));
     LogToFile("   Volume: " + DoubleToString(volume, 2));
     LogToFile("");
-    
+
     SendTradeConfirmation(ticket, "SELL", symbol, volume, orderPrice);
 }
 
@@ -356,7 +356,7 @@ void SendAccountUpdate()
     double margin = AccountInfoDouble(ACCOUNT_MARGIN);
     double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
     double profit = AccountInfoDouble(ACCOUNT_PROFIT);
-    
+
     string json = "{";
     json += "\"balance\":" + DoubleToString(balance, 2) + ",";
     json += "\"equity\":" + DoubleToString(equity, 2) + ",";
@@ -364,9 +364,9 @@ void SendAccountUpdate()
     json += "\"free_margin\":" + DoubleToString(free_margin, 2) + ",";
     json += "\"profit\":" + DoubleToString(profit, 2);
     json += "}";
-    
+
     LogToFile("📊 [ACCOUNT] Sending account update - Balance: $" + DoubleToString(balance, 2) + " Profit: $" + DoubleToString(profit, 2));
-    
+
     SendToAPI("/api/account/update", json, "POST");
 }
 
@@ -382,9 +382,9 @@ void SendTradeConfirmation(ulong ticket, string action, string symbol, double vo
     json += "\"volume\":" + DoubleToString(volume, 2) + ",";
     json += "\"price\":" + DoubleToString(price, 5);
     json += "}";
-    
+
     LogToFile("📤 [CONFIRM] Sending trade confirmation - Ticket: " + IntegerToString(ticket));
-    
+
     SendToAPI("/api/trades/confirm", json, "POST");
 }
 
@@ -395,27 +395,27 @@ void SendToAPI(string endpoint, string jsonData, string method = "POST")
 {
     char data[];
     char result[];
-    
+
     string headers = "X-API-Key: " + API_KEY + "\r\n";
     headers += "Content-Type: application/json\r\n";
-    
-    if(method == "POST")
+
+    if (method == "POST")
     {
         StringToCharArray(jsonData, data, 0, StringLen(jsonData));
     }
-    
+
     string url = API_URL + endpoint;
-    
+
     LogToFile("📡 [API] Sending " + method + " to: " + url);
-    
+
     int res = WebRequest(method, url, headers, 10000, data, result, headers);
-    
-    if(res == 200)
+
+    if (res == 200)
     {
         string response = CharArrayToString(result);
         LogToFile("✅ [API] Response: " + StringSubstr(response, 0, 100));
     }
-    else if(res > 0)
+    else if (res > 0)
     {
         LogToFile("⚠️  [API] HTTP " + IntegerToString(res) + ": " + GetHTTPErrorDescription(res));
     }
@@ -426,53 +426,49 @@ void SendToAPI(string endpoint, string jsonData, string method = "POST")
 }
 
 //+------------------------------------------------------------------+
-//| Extract JSON field value                                           |
+//| Extract JSON field value                                          |
 //+------------------------------------------------------------------+
 string ExtractField(string json, string fieldName)
 {
     string searchStr = "\"" + fieldName + "\":";
     int start = StringFind(json, searchStr);
-    
-    if(start < 0)
-        return "";
-    
+    if (start < 0) return "";
+
     start += StringLen(searchStr);
-    
-    while(start < StringLen(json) && (json[start] == ' ' || json[start] == '\t'))
+
+    while (start < StringLen(json) && (json[start] == ' ' || json[start] == '\t'))
         start++;
-    
+
     int end = start;
-    char charAtEnd = json[end];
-    
-    if(charAtEnd == '"')
+    ushort charAtEnd = json[end]; // ✅ fixed
+
+    if (charAtEnd == '"')
     {
         end++;
-        while(end < StringLen(json) && json[end] != '"')
-            end++;
+        while (end < StringLen(json) && json[end] != '"') end++;
         return StringSubstr(json, start + 1, end - start - 1);
     }
     else
     {
-        while(end < StringLen(json) && json[end] != ',' && json[end] != '}' && json[end] != ']')
-            end++;
+        while (end < StringLen(json) && json[end] != ',' && json[end] != '}' && json[end] != ']') end++;
         return StringSubstr(json, start, end - start);
     }
 }
 
 //+------------------------------------------------------------------+
-//| Count signals in array                                             |
+//| Count signals in array                                            |
 //+------------------------------------------------------------------+
 int CountSignals(string json)
 {
     int count = 0;
     int pos = 0;
-    
-    while((pos = StringFind(json, "\"id\":", pos)) >= 0)
+
+    while ((pos = StringFind(json, "\"id\":", pos)) >= 0)
     {
         count++;
         pos++;
     }
-    
+
     return count;
 }
 
@@ -481,7 +477,7 @@ int CountSignals(string json)
 //+------------------------------------------------------------------+
 string GetHTTPErrorDescription(int code)
 {
-    switch(code)
+    switch (code)
     {
         case 0:    return "Success";
         case -1:   return "Invalid URL";
@@ -497,8 +493,8 @@ string GetHTTPErrorDescription(int code)
         case 500:  return "Internal Server Error";
         case 502:  return "Bad Gateway";
         case 503:  return "Service Unavailable";
-        default:   return "HTTP Error " + IntegerToString(code);
+        case 504:  return "Gateway Timeout";
+        default:   return "Unknown error";
     }
 }
-
-//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+-------------+

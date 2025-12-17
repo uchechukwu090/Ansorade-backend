@@ -1,0 +1,290 @@
+🧪 SIGNAL FLOW DEBUGGING CHECKLIST
+===================================
+
+Use this checklist to diagnose signal flow issues step-by-step:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: VERIFY BACKEND CONNECTIVITY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ Anso Vision Backend Healthy
+  curl https://anso-vision-backend.onrender.com/health
+  Expected: {"status": "healthy", "mt5_backend": "https://ansorade-backend.onrender.com"}
+
+☐ MT5 Backend Healthy  
+  curl https://ansorade-backend.onrender.com/health
+  Expected: {"status": "healthy", "database": "connected"}
+
+☐ Supabase Connection Works
+  Can you log in to Supabase dashboard? 
+  Can you see the signals table?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 2: TEST SIGNAL GENERATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ Anso Vision generates signals
+  - Check logs for: "🧠 SIGNAL GENERATION (CLEAN VERSION)"
+  - Should have: "Signal Type: BUY" or "SELL"
+  - Entry, TP, SL should be populated
+
+☐ Signal includes all fields
+  - ✅ signal_type (BUY/SELL/WAIT)
+  - ✅ entry (entry price)
+  - ✅ tp (take profit)
+  - ✅ sl (stop loss)
+  - ✅ confidence (0-1)
+  - ✅ reasoning (string)
+  - ✅ limit_orders (bool) - NEW
+  - ✅ whipsaw_risk (HIGH/MEDIUM/LOW)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 3: TEST SIGNAL POSTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ Anso Vision posts to MT5 Backend
+  Look for logs: "🚀 POSTING SIGNAL TO MT5 BACKEND"
+  
+  Payload should include:
+  {
+    "symbol": "EURUSD",
+    "action": "BUY",
+    "entry": 1.0950,
+    "tp": 1.0980,
+    "sl": 1.0920,
+    "volume": 0.01,
+    "confidence": 0.85,
+    "reasoning": "...",
+    "limit_orders": false,  ✅ NEW
+    "timeframe": "1h"
+  }
+
+☐ Post is successful
+  Look for: "✅ SIGNAL POSTED TO MT5 SUCCESSFULLY"
+  Should show: Signal ID from Supabase
+
+☐ Check HTTP status codes
+  Expected: 200 OK
+  403 = Wrong API key
+  404 = Wrong URL
+  500 = Backend error (check MT5 logs)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 4: VERIFY DATABASE STORAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ MT5 Backend receives signal
+  Look for: "🎯 NEW SIGNAL RECEIVED FROM GENERATOR"
+  Should show all fields including entry, limit_orders
+
+☐ Signal stored in Supabase
+  Look for: "✅ Signal stored in Supabase: ID=12345"
+
+☐ Query Supabase directly
+  SELECT * FROM signals 
+  WHERE symbol = 'EURUSD' 
+  AND status = 'pending' 
+  ORDER BY created_at DESC 
+  LIMIT 5;
+  
+  ☐ entry field is populated (not NULL)
+  ☐ limit_orders field is populated (not NULL)
+  ☐ reasoning field is populated (not NULL)
+  ☐ status = 'pending'
+
+☐ Column exists check
+  SELECT column_name FROM information_schema.columns 
+  WHERE table_name = 'signals';
+  
+  Should have:
+  - entry
+  - limit_orders
+  - reasoning
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 5: TEST EA POLLING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ EA settings correct
+  - API_URL: https://ansorade-backend.onrender.com
+  - API_KEY: Mr.creative090
+  - CHECK_INTERVAL: 5 (seconds)
+
+☐ WebRequest enabled in MT5
+  Tools → Options → Expert Advisors → Allow WebRequest
+  ✅ Check: https://ansorade-backend.onrender.com
+
+☐ Manual test with curl
+  curl -H "X-API-Key: Mr.creative090" \
+       https://ansorade-backend.onrender.com/api/signals/pending
+  
+  Should return: Array of pending signals
+  If empty: No pending signals (this is OK if none recently created)
+  If error: Check API key or backend status
+
+☐ EA Journal shows polling
+  Look for: "📡 [POLL] Checking for pending signals"
+  Should show: "✅ [POLL] Got signals response (XXX bytes)"
+
+☐ EA receives signal data
+  Journal should show: "📈 NEW SIGNAL - VALIDATION START"
+  With all details:
+  - Symbol: EURUSD
+  - Action: BUY
+  - Entry: 1.0950
+  - TP: 1.0980
+  - SL: 1.0920
+  - Confidence: 85%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 6: TEST SIGNAL VALIDATION & EXECUTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ EA validates signal
+  Look for: "✅ [VALIDATE] Symbol exists"
+  Check all validations:
+  - Symbol valid
+  - Volume valid
+  - TP/SL valid
+  - Sufficient balance
+
+☐ EA executes trade
+  Look for: "✅ [EXECUTE] BUY ORDER EXECUTED SUCCESSFULLY!"
+  Should show:
+  - Ticket number
+  - Execution price
+  - Volume
+
+☐ EA confirms trade
+  Look for: "📤 [CONFIRM] Sending trade confirmation"
+  Should POST to: /api/trades/confirm
+
+☐ Trade recorded in Supabase
+  SELECT * FROM trades ORDER BY opened_at DESC LIMIT 1;
+  Should show:
+  - ticket (from MT5)
+  - symbol
+  - action
+  - volume
+  - open_price
+  - status = 'open'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 7: MONITOR SIGNAL STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☐ Check signal status progression
+  SELECT id, symbol, status, created_at 
+  FROM signals 
+  ORDER BY created_at DESC 
+  LIMIT 10;
+  
+  Status should progress:
+  pending → processing → executed
+
+☐ Monitor account state
+  SELECT * FROM account_state 
+  ORDER BY timestamp DESC 
+  LIMIT 1;
+  
+  Should show:
+  - balance
+  - equity
+  - profit
+  - Updated regularly
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+COMMON ISSUES & FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ISSUE: "❌ API Key mismatch"
+FIX: Check COMMUNITY_API_KEY in both:
+     - Anso-vision-backend: api_server_integrated.py
+     - MT5 backend: main.py (API_SECRET_KEY)
+     - MT5 EA: CommunityTrader.mq5
+
+ISSUE: "❌ CANNOT REACH MT5 BACKEND"
+FIX: 
+  1. Check internet connection
+  2. Verify URL: https://ansorade-backend.onrender.com
+  3. Check if Render service is running
+  4. Check firewall/proxy settings
+
+ISSUE: "entry field is NULL in Supabase"
+FIX:
+  1. Check Anso Vision sends entry price
+  2. Check Signal model includes entry field
+  3. Run: ALTER TABLE signals ADD COLUMN entry DECIMAL(10,5);
+  4. Redeploy all services
+
+ISSUE: "limit_orders not being saved"
+FIX:
+  1. Check Supabase schema has limit_orders column
+  2. Check Signal model has limit_orders field
+  3. Check post_to_community_trading includes limit_orders
+  4. If column missing: ALTER TABLE signals ADD COLUMN limit_orders BOOLEAN DEFAULT FALSE;
+
+ISSUE: "EA not receiving signals"
+FIX:
+  1. Verify API key is correct
+  2. Check WebRequest is enabled
+  3. Check CHECK_INTERVAL isn't too long
+  4. Monitor EA Journal for polling errors
+  5. Test manually: curl -H "X-API-Key: Mr.creative090" https://ansorade-backend.onrender.com/api/signals/pending
+
+ISSUE: "Signals created but status stays 'pending'"
+FIX:
+  1. Check EA is actually running (Journal should show polling)
+  2. Check EA retrieved the signal (Journal: "📈 NEW SIGNAL")
+  3. Check validation (all validations should pass)
+  4. Check trade execution (EA should execute)
+  5. Check trade confirmation sent back
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+QUICK TEST: CREATE MANUAL SIGNAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+curl -X POST https://ansorade-backend.onrender.com/api/signals/manual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "EURUSD",
+    "action": "BUY",
+    "volume": 0.01,
+    "entry": 1.0950,
+    "sl": 1.0920,
+    "tp": 1.0980,
+    "confidence": 0.85,
+    "timeframe": "1h",
+    "limit_orders": false,
+    "reasoning": "Test signal"
+  }'
+
+Expected response:
+{
+  "success": true,
+  "message": "Signal created successfully",
+  "signal_id": 12345,
+  "signal": {...}
+}
+
+Then check:
+1. Signal appears in Supabase
+2. EA retrieves it (check Journal)
+3. Trade is executed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ All checks passed? 
+System is working correctly!
+
+❌ Some failed?
+Check that specific section and fix before moving to next step.

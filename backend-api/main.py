@@ -23,17 +23,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
-API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
-
-# ✅ Fix: Skip API key check for OPTIONS requests (CORS preflight)
-async def verify_api_key(request: Request, x_api_key: str = Header(None)):
-    if request.method == "OPTIONS":
-        return None  # allow preflight through without API key
-    if x_api_key != API_SECRET_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    return x_api_key
-
-API_SECRET_KEY = os.getenv("API_SECRET_KEY", "Mr.creative090")
 
 # ✅ FIXED: Single verify_api_key function
 async def verify_api_key(request: Request, x_api_key: str = Header(None)):
@@ -82,12 +71,14 @@ class Signal(BaseModel):
     symbol: str
     action: str  # BUY or SELL
     volume: float = 0.01
+    entry: Optional[float] = None  # ✅ NEW: Entry price from signal generator
     sl: Optional[float] = None
     tp: Optional[float] = None
     signal_id: Optional[str] = None
     confidence: Optional[float] = None
     timeframe: Optional[str] = None
-    entry: Optional[float] = None
+    limit_orders: Optional[bool] = False  # ✅ NEW: Support limit orders
+    reasoning: Optional[str] = None  # ✅ NEW: Signal reasoning
 
 class AccountUpdate(BaseModel):
     balance: float
@@ -153,10 +144,13 @@ async def send_signal_to_trading_app(signal_data: dict):
                 "symbol": signal_data.get("symbol"),
                 "action": signal_data.get("signal", "BUY"),
                 "volume": signal_data.get("volume", 0.01),
+                "entry": signal_data.get("entry"),
                 "sl": signal_data.get("sl"),
                 "tp": signal_data.get("tp"),
                 "confidence": signal_data.get("confidence"),
-                "timeframe": signal_data.get("timeframe")
+                "timeframe": signal_data.get("timeframe"),
+                "limit_orders": signal_data.get("limit_orders", False),
+                "reasoning": signal_data.get("reasoning")
             }
             
             response = await client.post(
@@ -204,7 +198,7 @@ async def shutdown():
 # Endpoints
 @app.get("/")
 async def root():
-    return {"message": "MT5 Community Trading API", "status": "running", "version": "2.0"}
+    return {"message": "MT5 Community Trading API", "status": "running", "version": "2.1"}
 
 @app.get("/health")
 async def health():
@@ -215,10 +209,10 @@ async def health():
     except Exception as e:
         return {"status": "unhealthy", "database": "disconnected", "error": str(e)}, 500
 
-# ✅ FIXED: Proper POST with API key dependency
+# ✅ FIXED: Proper POST with API key dependency - SAVE ALL FIELDS
 @app.post("/api/signal")
 async def receive_signal(signal: Signal, request: Request, x_api_key: str = Header(None)):
-    """✅ FIXED: Receive trading signal from signal generator WITH ENHANCED LOGGING"""
+    """✅ FIXED: Receive trading signal from signal generator WITH ALL FIELDS"""
     try:
         # Verify API key
         if x_api_key != API_SECRET_KEY:
@@ -238,9 +232,12 @@ async def receive_signal(signal: Signal, request: Request, x_api_key: str = Head
         print(f"Volume: {signal.volume}")
         print(f"Confidence: {signal.confidence:.1%}" if signal.confidence else "Confidence: N/A")
         print(f"Timeframe: {signal.timeframe}")
+        print(f"Limit Orders: {signal.limit_orders}")
+        print(f"Reasoning: {signal.reasoning}")
         print("="*70)
         
-        response = supabase.table("signals").insert({
+        # ✅ SAVE ALL FIELDS to Supabase
+        signal_data = {
             "symbol": signal.symbol,
             "action": signal.action.upper(),
             "volume": signal.volume,
@@ -249,12 +246,18 @@ async def receive_signal(signal: Signal, request: Request, x_api_key: str = Head
             "tp": signal.tp,
             "confidence": signal.confidence,
             "timeframe": signal.timeframe,
+            "limit_orders": signal.limit_orders,  # ✅ NEW
+            "reasoning": signal.reasoning,  # ✅ NEW
             "status": "pending",
             "created_at": datetime.utcnow().isoformat()
-        }).execute()
+        }
+        
+        response = supabase.table("signals").insert(signal_data).execute()
         
         signal_id = response.data[0]["id"] if response.data else None
         print(f"✅ Signal stored in Supabase: ID={signal_id}")
+        print(f"✅ Limit Orders: {signal.limit_orders}")
+        print(f"✅ Reasoning saved: {signal.reasoning[:50] if signal.reasoning else 'N/A'}...")
         print(f"📡 Signal now available for MT5 EA to fetch")
         print()
         
@@ -263,7 +266,8 @@ async def receive_signal(signal: Signal, request: Request, x_api_key: str = Head
             "signal_id": signal_id,
             "status": "stored",
             "symbol": signal.symbol,
-            "action": signal.action.upper()
+            "action": signal.action.upper(),
+            "limit_orders": signal.limit_orders
         }
     except HTTPException:
         raise
@@ -279,7 +283,7 @@ async def manual_signal(signal: Signal):
     try:
         supabase = get_supabase_client()
         
-        response = supabase.table("signals").insert({
+        signal_data = {
             "symbol": signal.symbol,
             "action": signal.action.upper(),
             "volume": signal.volume or 0.01,
@@ -288,9 +292,13 @@ async def manual_signal(signal: Signal):
             "tp": signal.tp,
             "confidence": signal.confidence or 0.85,
             "timeframe": signal.timeframe or "M15",
+            "limit_orders": signal.limit_orders or False,  # ✅ NEW
+            "reasoning": signal.reasoning,  # ✅ NEW
             "status": "pending",
             "created_at": datetime.utcnow().isoformat()
-        }).execute()
+        }
+        
+        response = supabase.table("signals").insert(signal_data).execute()
         
         signal_id = response.data[0]["id"] if response.data else None
         print(f"✅ Manual signal stored: {signal.symbol} {signal.action}")
@@ -306,6 +314,7 @@ async def manual_signal(signal: Signal):
                 "entry": signal.entry,
                 "sl": signal.sl,
                 "tp": signal.tp,
+                "limit_orders": signal.limit_orders,
                 "status": "pending"
             }
         }
@@ -327,6 +336,7 @@ async def get_pending_signals(x_api_key: str = Header(None)):
         if signals.data:
             signal_ids = [s["id"] for s in signals.data]
             supabase.table("signals").update({"status": "processing"}).in_("id", signal_ids).execute()
+            print(f"✅ Fetched {len(signals.data)} pending signals for MT5 EA")
         
         return signals.data or []
     except HTTPException:

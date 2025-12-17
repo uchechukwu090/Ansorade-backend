@@ -18,11 +18,14 @@ CREATE TABLE IF NOT EXISTS public.signals (
   symbol VARCHAR(50) NOT NULL,
   action VARCHAR(10) NOT NULL, -- BUY or SELL
   volume DECIMAL(10, 2) NOT NULL,
+  entry DECIMAL(10, 5),
   sl DECIMAL(10, 5),
   tp DECIMAL(10, 5),
   confidence DECIMAL(3, 2),
   timeframe VARCHAR(10),
+  limit_orders BOOLEAN DEFAULT FALSE, -- ✅ NEW: Support limit orders
   status VARCHAR(50) DEFAULT 'pending', -- pending, processing, executed, failed
+  reasoning TEXT,
   created_at TIMESTAMP DEFAULT NOW(),
   executed_at TIMESTAMP,
   updated_at TIMESTAMP DEFAULT NOW()
