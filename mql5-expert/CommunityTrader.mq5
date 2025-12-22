@@ -1,9 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                           CommunityTrader.mq5    |
 //|              ✅ FIXED: Production-Ready EA with Full Logging     |
+//|              ✅ UPDATED: Enhanced Polling with Robust Parsing    |
 //+------------------------------------------------------------------+
 #property copyright "Community Trading"
-#property version   "2.01"
+#property version   "2.02"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -11,7 +12,8 @@
 // ✅ Configuration with ENHANCED LOGGING
 input string API_URL = "https://ansorade-backend.onrender.com";
 input string API_KEY = "Mr.creative090";
-input int CHECK_INTERVAL = 5;
+input int CHECK_INTERVAL = 5;           // Seconds between polling
+input int REQUEST_TIMEOUT = 8000;       // ms for WebRequest timeout
 input double RISK_PERCENT = 1.0;
 
 CTrade trade;
@@ -42,7 +44,7 @@ void LogToFile(string message)
 int OnInit()
 {
     LogToFile("════════════════════════════════════════════════");
-    LogToFile("✅ COMMUNITY TRADER EA STARTED (v2.01)");
+    LogToFile("✅ COMMUNITY TRADER EA STARTED (v2.02)");
     LogToFile("════════════════════════════════════════════════");
     LogToFile("Server: " + AccountInfoString(ACCOUNT_SERVER));
     LogToFile("Account: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
@@ -54,6 +56,7 @@ int OnInit()
     LogToFile("  URL: " + API_URL);
     LogToFile("  API Key: " + API_KEY);
     LogToFile("  Check Interval: " + IntegerToString(CHECK_INTERVAL) + " seconds");
+    LogToFile("  Request Timeout: " + IntegerToString(REQUEST_TIMEOUT) + " ms");
     LogToFile("  Log File: " + LOG_FILE);
     LogToFile("════════════════════════════════════════════════");
 
@@ -94,45 +97,66 @@ void OnTimer()
 }
 
 //+------------------------------------------------------------------+
-//| Check for new trading signals                                      |
+//| ✅ UPDATED: Enhanced polling with robust error handling           |
 //+------------------------------------------------------------------+
 void CheckForSignals()
 {
+    string response = HttpGetPending();
+    
+    if (response == "ERROR") 
+    {
+        LogToFile("❌ [POLL] Failed to fetch signals - skipping this cycle");
+        return;
+    }
+    
+    if (response == "" || response == "[]") 
+    {
+        LogToFile("ℹ️  [POLL] No pending signals (empty response)");
+        return;
+    }
+    
+    LogToFile("✅ [POLL] Received response (" + IntegerToString(StringLen(response)) + " bytes)");
+    ProcessSignals(response);
+}
+
+//+------------------------------------------------------------------+
+//| ✅ NEW: Robust HTTP GET function for pending signals              |
+//+------------------------------------------------------------------+
+string HttpGetPending()
+{
+    string url = API_URL + "/api/signals/pending";
+    
     char data[];
     char result[];
     string headers = "X-API-Key: " + API_KEY + "\r\n";
     headers += "Content-Type: application/json\r\n";
-
-    string url = API_URL + "/api/signals/pending";
-
-    LogToFile("📡 [POLL] Checking for pending signals at: " + url);
-
-    int res = WebRequest("GET", url, headers, 10000, data, result, headers);
-
-    if (res == 200)
+    
+    LogToFile("📡 [POLL] GET " + url);
+    
+    int res = WebRequest("GET", url, headers, REQUEST_TIMEOUT, data, result, headers);
+    
+    if (res == -1)
     {
-        string response = CharArrayToString(result);
-        LogToFile("✅ [POLL] Got signals response (" + IntegerToString(StringLen(response)) + " bytes)");
-
-        if (response != "" && response != "[]")
-        {
-            LogToFile("📊 [PARSE] Processing response: " + StringSubstr(response, 0, 200));
-            ProcessSignals(response);
-        }
-        else
-        {
-            LogToFile("ℹ️  [POLL] No pending signals in response");
-        }
+        int lastError = GetLastError();
+        string errorMsg = GetHTTPErrorDescription(lastError);
+        LogToFile("❌ [POLL] WebRequest failed!");
+        LogToFile("   Error Code: " + IntegerToString(lastError));
+        LogToFile("   Error: " + errorMsg);
+        LogToFile("   → Check 'Allow WebRequest' in EA settings");
+        LogToFile("   → Add '" + API_URL + "' to allowed URLs");
+        return "ERROR";
     }
-    else if (res > 0)
+    
+    if (res >= 400)
     {
-        LogToFile("⚠️  [POLL] API returned HTTP " + IntegerToString(res) + " (" + GetHTTPErrorDescription(res) + ")");
+        LogToFile("⚠️  [POLL] HTTP Error " + IntegerToString(res) + ": " + GetHTTPErrorDescription(res));
+        return "ERROR";
     }
-    else
-    {
-        LogToFile("❌ [POLL] WebRequest failed. Code: " + IntegerToString(res));
-        LogToFile("   Make sure 'Allow WebRequest' is enabled in EA settings!");
-    }
+    
+    string respStr = CharArrayToString(result);
+    LogToFile("✅ [POLL] HTTP " + IntegerToString(res) + " - Response preview: " + StringSubstr(respStr, 0, 200));
+    
+    return respStr;
 }
 
 //+------------------------------------------------------------------+
@@ -147,36 +171,91 @@ void ProcessSignals(string jsonResponse)
 
     LogToFile("🔍 [PARSE] Detecting signal format...");
 
-    if (StringFind(jsonResponse, "[") == 0)
+    // Remove whitespace for easier parsing
+    string cleanJson = StringTrim(jsonResponse);
+    
+    if (StringFind(cleanJson, "[") == 0)
     {
-        int signalCount = CountSignals(jsonResponse);
+        // Array of signals
+        int signalCount = CountSignals(cleanJson);
         LogToFile("📊 [PARSE] Array detected with " + IntegerToString(signalCount) + " signals");
 
         int pos = 1;
         int processedCount = 0;
+        int maxSignals = 10; // Limit to prevent infinite loops
 
-        while (pos < StringLen(jsonResponse))
+        while (pos < StringLen(cleanJson) && processedCount < maxSignals)
         {
-            int signalStart = StringFind(jsonResponse, "{", pos);
+            int signalStart = StringFind(cleanJson, "{", pos);
             if (signalStart < 0) break;
 
-            int signalEnd = StringFind(jsonResponse, "}", signalStart);
+            int signalEnd = FindMatchingBrace(cleanJson, signalStart);
             if (signalEnd < 0) break;
 
-            string singleSignal = StringSubstr(jsonResponse, signalStart, signalEnd - signalStart + 1);
-            ProcessSingleSignal(singleSignal);
-            processedCount++;
+            string singleSignal = StringSubstr(cleanJson, signalStart, signalEnd - signalStart + 1);
+            
+            if (ValidateSignalJSON(singleSignal))
+            {
+                ProcessSingleSignal(singleSignal);
+                processedCount++;
+            }
+            else
+            {
+                LogToFile("⚠️  [PARSE] Skipping invalid signal JSON");
+            }
 
             pos = signalEnd + 1;
         }
 
-        LogToFile("✅ [PARSE] Processed " + IntegerToString(processedCount) + " signals");
+        LogToFile("✅ [PARSE] Processed " + IntegerToString(processedCount) + " valid signals");
+    }
+    else if (StringFind(cleanJson, "{") == 0)
+    {
+        // Single signal object
+        LogToFile("📊 [PARSE] Single object detected");
+        if (ValidateSignalJSON(cleanJson))
+        {
+            ProcessSingleSignal(cleanJson);
+        }
+        else
+        {
+            LogToFile("❌ [PARSE] Invalid single signal JSON");
+        }
     }
     else
     {
-        LogToFile("📊 [PARSE] Single object detected");
-        ProcessSingleSignal(jsonResponse);
+        LogToFile("❌ [PARSE] Unknown JSON format: " + StringSubstr(cleanJson, 0, 100));
     }
+}
+
+//+------------------------------------------------------------------+
+//| ✅ NEW: Validate JSON structure before parsing                    |
+//+------------------------------------------------------------------+
+bool ValidateSignalJSON(string jsonStr)
+{
+    if (StringFind(jsonStr, "\"symbol\"") < 0 || 
+        StringFind(jsonStr, "\"action\"") < 0 ||
+        StringFind(jsonStr, "\"volume\"") < 0)
+    {
+        return false;
+    }
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| ✅ NEW: Find matching brace for JSON parsing                      |
+//+------------------------------------------------------------------+
+int FindMatchingBrace(string text, int startPos)
+{
+    int braceCount = 0;
+    for (int i = startPos; i < StringLen(text); i++)
+    {
+        if (text[i] == '{') braceCount++;
+        else if (text[i] == '}') braceCount--;
+        
+        if (braceCount == 0) return i;
+    }
+    return -1;
 }
 
 //+------------------------------------------------------------------+
@@ -189,6 +268,7 @@ void ProcessSingleSignal(string signal)
     double volume = StringToDouble(ExtractField(signal, "volume"));
     double tp = StringToDouble(ExtractField(signal, "tp"));
     double sl = StringToDouble(ExtractField(signal, "sl"));
+    double entry = StringToDouble(ExtractField(signal, "entry"));
     double confidence = StringToDouble(ExtractField(signal, "confidence"));
     int signalId = (int)StringToDouble(ExtractField(signal, "id"));
 
@@ -200,7 +280,7 @@ void ProcessSingleSignal(string signal)
     LogToFile("Symbol: " + symbol);
     LogToFile("Action: " + action);
     LogToFile("Volume: " + DoubleToString(volume, 2));
-    LogToFile("Entry: MARKET");
+    LogToFile("Entry: " + (entry > 0 ? DoubleToString(entry, 5) : "MARKET"));
     LogToFile("TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
     LogToFile("Confidence: " + DoubleToString(confidence * 100.0, 1) + "%");
     LogToFile("═══════════════════════════════════");
@@ -215,11 +295,11 @@ void ProcessSingleSignal(string signal)
 
     if (StringCompare(StringUpper(action), "BUY") == 0)
     {
-        ExecuteBuy(symbol, volume, sl, tp);
+        ExecuteBuy(symbol, volume, sl, tp, entry);
     }
     else if (StringCompare(StringUpper(action), "SELL") == 0)
     {
-        ExecuteSell(symbol, volume, sl, tp);
+        ExecuteSell(symbol, volume, sl, tp, entry);
     }
     else
     {
@@ -281,18 +361,20 @@ bool ValidateSignal(string action, string symbol, double volume, double tp, doub
 //+------------------------------------------------------------------+
 //| Execute Buy Order                                                 |
 //+------------------------------------------------------------------+
-void ExecuteBuy(string symbol, double volume, double sl, double tp)
+void ExecuteBuy(string symbol, double volume, double sl, double tp, double entry = 0)
 {
     LogToFile("");
     LogToFile("🔵 [EXECUTE] BUY ORDER EXECUTION STARTED");
     LogToFile("   Symbol: " + symbol);
     LogToFile("   Volume: " + DoubleToString(volume, 2));
 
-    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
-    LogToFile("   Current ASK: " + DoubleToString(ask, 5));
+    double price = (entry > 0) ? entry : SymbolInfoDouble(symbol, SYMBOL_ASK);
+    string priceType = (entry > 0) ? "ENTRY" : "CURRENT ASK";
+    
+    LogToFile("   " + priceType + ": " + DoubleToString(price, 5));
     LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
 
-    if (!trade.Buy(volume, symbol, ask, sl, tp, "CT_" + IntegerToString(rand())))
+    if (!trade.Buy(volume, symbol, price, sl, tp, "CT_" + IntegerToString(rand())))
     {
         LogToFile("❌ [EXECUTE] BUY FAILED!");
         LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
@@ -315,18 +397,20 @@ void ExecuteBuy(string symbol, double volume, double sl, double tp)
 //+------------------------------------------------------------------+
 //| Execute Sell Order                                                |
 //+------------------------------------------------------------------+
-void ExecuteSell(string symbol, double volume, double sl, double tp)
+void ExecuteSell(string symbol, double volume, double sl, double tp, double entry = 0)
 {
     LogToFile("");
     LogToFile("🔴 [EXECUTE] SELL ORDER EXECUTION STARTED");
     LogToFile("   Symbol: " + symbol);
     LogToFile("   Volume: " + DoubleToString(volume, 2));
 
-    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
-    LogToFile("   Current BID: " + DoubleToString(bid, 5));
+    double price = (entry > 0) ? entry : SymbolInfoDouble(symbol, SYMBOL_BID);
+    string priceType = (entry > 0) ? "ENTRY" : "CURRENT BID";
+    
+    LogToFile("   " + priceType + ": " + DoubleToString(price, 5));
     LogToFile("   TP: " + DoubleToString(tp, 5) + " | SL: " + DoubleToString(sl, 5));
 
-    if (!trade.Sell(volume, symbol, bid, sl, tp, "CT_" + IntegerToString(rand())))
+    if (!trade.Sell(volume, symbol, price, sl, tp, "CT_" + IntegerToString(rand())))
     {
         LogToFile("❌ [EXECUTE] SELL FAILED!");
         LogToFile("   Retcode: " + IntegerToString(trade.ResultRetcode()));
@@ -408,7 +492,7 @@ void SendToAPI(string endpoint, string jsonData, string method = "POST")
 
     LogToFile("📡 [API] Sending " + method + " to: " + url);
 
-    int res = WebRequest(method, url, headers, 10000, data, result, headers);
+    int res = WebRequest(method, url, headers, REQUEST_TIMEOUT, data, result, headers);
 
     if (res == 200)
     {
@@ -440,7 +524,7 @@ string ExtractField(string json, string fieldName)
         start++;
 
     int end = start;
-    ushort charAtEnd = json[end]; // ✅ fixed
+    ushort charAtEnd = json[end];
 
     if (charAtEnd == '"')
     {
@@ -497,4 +581,27 @@ string GetHTTPErrorDescription(int code)
         default:   return "Unknown error";
     }
 }
-//+------------------------------------------------------------------+-------------+
+
+//+------------------------------------------------------------------+
+//| ✅ NEW: Trim whitespace from string                                |
+//+------------------------------------------------------------------+
+string StringTrim(string input)
+{
+    string result = input;
+    
+    // Trim leading
+    while (StringLen(result) > 0 && (result[0] == ' ' || result[0] == '\t' || result[0] == '\n' || result[0] == '\r'))
+    {
+        result = StringSubstr(result, 1);
+    }
+    
+    // Trim trailing
+    while (StringLen(result) > 0 && (result[StringLen(result)-1] == ' ' || result[StringLen(result)-1] == '\t' || 
+           result[StringLen(result)-1] == '\n' || result[StringLen(result)-1] == '\r'))
+    {
+        result = StringSubstr(result, 0, StringLen(result)-1);
+    }
+    
+    return result;
+}
+//+------------------------------------------------------------------+
