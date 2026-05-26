@@ -39,6 +39,16 @@ void LogToFile(string message)
 }
 
 //+------------------------------------------------------------------+
+//| ✅ NEW: Helper for StringUpper (MQL5 StringToUpper is in-place)   |
+//+------------------------------------------------------------------+
+string StringUpper(string str)
+{
+    string res = str;
+    StringToUpper(res);
+    return res;
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                     |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -130,10 +140,11 @@ string HttpGetPending()
     char result[];
     string headers = "X-API-Key: " + API_KEY + "\r\n";
     headers += "Content-Type: application/json\r\n";
+    string result_headers;
     
     LogToFile("📡 [POLL] GET " + url);
     
-    int res = WebRequest("GET", url, headers, REQUEST_TIMEOUT, data, result, headers);
+    int res = WebRequest("GET", url, headers, REQUEST_TIMEOUT, data, result, result_headers);
     
     if (res == -1)
     {
@@ -250,8 +261,9 @@ int FindMatchingBrace(string text, int startPos)
     int braceCount = 0;
     for (int i = startPos; i < StringLen(text); i++)
     {
-        if (text[i] == '{') braceCount++;
-        else if (text[i] == '}') braceCount--;
+        ushort c = StringGetCharacter(text, i); // Fixed: MQL5 string indexing
+        if (c == '{') braceCount++;
+        else if (c == '}') braceCount--;
         
         if (braceCount == 0) return i;
     }
@@ -482,17 +494,18 @@ void SendToAPI(string endpoint, string jsonData, string method = "POST")
 
     string headers = "X-API-Key: " + API_KEY + "\r\n";
     headers += "Content-Type: application/json\r\n";
+    string result_headers;
 
     if (method == "POST")
     {
-        StringToCharArray(jsonData, data, 0, StringLen(jsonData));
+        StringToCharArray(jsonData, data); // Fixed: Simplified parameter count
     }
 
     string url = API_URL + endpoint;
 
     LogToFile("📡 [API] Sending " + method + " to: " + url);
 
-    int res = WebRequest(method, url, headers, REQUEST_TIMEOUT, data, result, headers);
+    int res = WebRequest(method, url, headers, REQUEST_TIMEOUT, data, result, result_headers);
 
     if (res == 200)
     {
@@ -520,21 +533,22 @@ string ExtractField(string json, string fieldName)
 
     start += StringLen(searchStr);
 
-    while (start < StringLen(json) && (json[start] == ' ' || json[start] == '\t'))
+    // Fixed: MQL5 string indexing using StringGetCharacter
+    while (start < StringLen(json) && (StringGetCharacter(json, start) == ' ' || StringGetCharacter(json, start) == '\t'))
         start++;
 
     int end = start;
-    ushort charAtEnd = json[end];
+    ushort charAtEnd = StringGetCharacter(json, end);
 
     if (charAtEnd == '"')
     {
         end++;
-        while (end < StringLen(json) && json[end] != '"') end++;
+        while (end < StringLen(json) && StringGetCharacter(json, end) != '"') end++;
         return StringSubstr(json, start + 1, end - start - 1);
     }
     else
     {
-        while (end < StringLen(json) && json[end] != ',' && json[end] != '}' && json[end] != ']') end++;
+        while (end < StringLen(json) && StringGetCharacter(json, end) != ',' && StringGetCharacter(json, end) != '}' && StringGetCharacter(json, end) != ']') end++;
         return StringSubstr(json, start, end - start);
     }
 }
@@ -585,23 +599,12 @@ string GetHTTPErrorDescription(int code)
 //+------------------------------------------------------------------+
 //| ✅ NEW: Trim whitespace from string                                |
 //+------------------------------------------------------------------+
-string StringTrim(string input)
+string StringTrim(string text)
 {
-    string result = input;
-    
-    // Trim leading
-    while (StringLen(result) > 0 && (result[0] == ' ' || result[0] == '\t' || result[0] == '\n' || result[0] == '\r'))
-    {
-        result = StringSubstr(result, 1);
-    }
-    
-    // Trim trailing
-    while (StringLen(result) > 0 && (result[StringLen(result)-1] == ' ' || result[StringLen(result)-1] == '\t' || 
-           result[StringLen(result)-1] == '\n' || result[StringLen(result)-1] == '\r'))
-    {
-        result = StringSubstr(result, 0, StringLen(result)-1);
-    }
-    
+    // Fixed: Renamed "input" parameter and replaced manual loops with built-in functions
+    string result = text;
+    StringTrimLeft(result);
+    StringTrimRight(result);
     return result;
 }
 //+------------------------------------------------------------------+
